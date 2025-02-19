@@ -78,3 +78,6 @@ void ssd1306_send_data(uint8_t data) {
     uint8_t data_buffer[2] = {0x40, data};
     i2c_write_blocking(i2c1, SSD1306_I2C_ADDR, data_buffer, 2, false);
 }
+
+
+

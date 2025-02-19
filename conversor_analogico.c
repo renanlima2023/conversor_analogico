@@ -25,14 +25,10 @@
 bool led_green_state = false;
 bool pwm_leds_enabled = true;
 
-// Mapeamento de valores
+// Mapeamento de valores ADC para PWM (escala de 0 a 255)
 int map_adc_to_pwm(int adc_value) {
     int pwm_value = (abs(adc_value - JOYSTICK_CENTER) * 255) / (ADC_MAX - JOYSTICK_CENTER);
-    
-    // Limita o valor de PWM para o intervalo de 0 a 255
-    if (pwm_value > 255) pwm_value = 255;
-
-    return pwm_value;
+    return pwm_value > 255 ? 255 : pwm_value;
 }
 
 // Configuração do PWM
@@ -75,56 +71,59 @@ void setup() {
     ssd1306_clear();
 }
 
-// Desenha um quadrado no display OLED
-void draw_square(int x_pos, int y_pos) {
-    int square_size = 8;
-    ssd1306_clear(); // Limpa o display antes de desenhar
-
-    if (x_pos < 0) x_pos = 0;
-    if (y_pos < 0) y_pos = 0;
-    if (x_pos + square_size > 128) x_pos = 128 - square_size;
-    if (y_pos + square_size > 64) y_pos = 64 - square_size;
-
-    for (int x = x_pos; x < x_pos + square_size; x++) {
-        for (int y = y_pos; y < y_pos + square_size; y++) {
-            ssd1306_draw_pixel(x, y, true);
+// Função para desenhar um quadrado no display
+void draw_square(int x, int y) {
+    int square_size = 8; // Tamanho do quadrado
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x + square_size > 128) x = 128 - square_size;
+    if (y + square_size > 64) y = 64 - square_size;
+    
+    // Desenha o quadrado pixel por pixel
+    for (int x1 = x; x1 < x + square_size; x1++) {
+        for (int y1 = y; y1 < y + square_size; y1++) {
+            ssd1306_draw_pixel(x1, y1, true);
         }
     }
-
-    ssd1306_display();
+    ssd1306_display();  // Atualiza o display
 }
 
-// Atualiza a posição do quadrado com base no joystick
-void update_square_position() {
-    adc_select_input(0); // Eixo Y (pino 26)
+// Função para atualizar a posição do quadrado
+void update_square() {
+    adc_select_input(0); // Eixo Y do joystick
     int y_val = adc_read();
-    
-    adc_select_input(1); // Eixo X (pino 27)
+    adc_select_input(1); // Eixo X do joystick
     int x_val = adc_read();
-
-    // Mapeamento da posição no display, centrando o quadrado
-    int x_pos = (x_val - JOYSTICK_CENTER) * 128 / (ADC_MAX - JOYSTICK_CENTER);
-    int y_pos = (y_val - JOYSTICK_CENTER) * 64 / (ADC_MAX - JOYSTICK_CENTER);
-
-    draw_square(x_pos, y_pos);
+    
+    // Mapeia os valores de ADC para a posição do quadrado no display
+    int x = (x_val - JOYSTICK_CENTER) * (SSD1306_WIDTH - 8) / (ADC_MAX - JOYSTICK_CENTER);
+    int y = (y_val - JOYSTICK_CENTER) * (SSD1306_HEIGHT - 8) / (ADC_MAX - JOYSTICK_CENTER);
+    
+    // Limita as posições para que o quadrado não ultrapasse os limites do display
+    x = x < 0 ? 0 : (x > SSD1306_WIDTH - 8 ? SSD1306_WIDTH - 8 : x);
+    y = y < 0 ? 0 : (y > SSD1306_HEIGHT - 8 ? SSD1306_HEIGHT - 8 : y);
+    
+    draw_square(x, y);
 }
 
-// Atualiza a intensidade dos LEDs
+
+// Função para atualizar os LEDs
 void update_leds() {
     if (!pwm_leds_enabled) {
         pwm_set_chan_level(pwm_gpio_to_slice_num(LED_BLUE), pwm_gpio_to_channel(LED_BLUE), 0);
         pwm_set_chan_level(pwm_gpio_to_slice_num(LED_RED), pwm_gpio_to_channel(LED_RED), 0);
         return;
     }
-    
-    adc_select_input(0); // Agora o eixo Y controla o LED azul
+
+    adc_select_input(0); // Eixo Y controla LED azul
     int y_val = adc_read();
-    adc_select_input(1); // Agora o eixo X controla o LED vermelho
+    adc_select_input(1); // Eixo X controla LED vermelho
     int x_val = adc_read();
-    
+
     int red_intensity = map_adc_to_pwm(x_val);
     int blue_intensity = map_adc_to_pwm(y_val);
 
+    // Desativa o LED se o joystick estiver próximo ao centro
     if (abs(x_val - JOYSTICK_CENTER) < 50) red_intensity = 0;
     if (abs(y_val - JOYSTICK_CENTER) < 50) blue_intensity = 0;
     
@@ -132,13 +131,13 @@ void update_leds() {
     pwm_set_chan_level(pwm_gpio_to_slice_num(LED_BLUE), pwm_gpio_to_channel(LED_BLUE), blue_intensity);
 }
 
-// Alterna o LED verde
+// Alterna o estado do LED verde
 void toggle_led_green() {
     led_green_state = !led_green_state;
     gpio_put(LED_GREEN, led_green_state);
 }
 
-// Interrupções para os botões
+// Função de interrupção para os botões
 void button_callback(uint gpio, uint32_t events) {
     static uint32_t last_time = 0;
     uint32_t current_time = to_ms_since_boot(get_absolute_time());
@@ -159,8 +158,8 @@ int main() {
     gpio_set_irq_enabled_with_callback(BUTTON_A, GPIO_IRQ_EDGE_FALL, true, &button_callback);
     
     while (1) {
-        update_leds();           // Atualiza os LEDs
-        update_square_position(); // Atualiza a posição do quadrado no display
-        sleep_ms(100);
+        update_leds();
+        update_square();
+        sleep_ms(100);  // Adiciona um pequeno atraso para evitar excesso de processamento
     }
 }
